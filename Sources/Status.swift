@@ -77,39 +77,43 @@ struct LaunchReport: Equatable {
     }
 }
 
-/// What the tray shows. AppKit-free so it is testable. `badge` is the SF Symbol drawn on the star.
+/// What the tray shows. AppKit-free so it is testable. `badge` is the SF Symbol, `tone` its color.
 struct StatusView: Equatable {
     static let staleAfter: TimeInterval = 15
 
+    enum Tone { case allowed, blocked, checking, problem, unknown }
+
     let badge: String
+    let tone: Tone
     let title: String
     let lines: [String]
 
     init(_ status: Status?, now: Date) {
         guard let status, now.timeIntervalSince(status.updatedAt) < StatusView.staleAfter else {
-            self.init(badge: "questionmark", title: "",
+            self.init(badge: "questionmark.circle", tone: .unknown, title: "",
                       lines: ["Guard daemon not responding", "Last firewall state still applies"])
             return
         }
         let warning = status.warning.map { ["⚠︎ \($0)"] } ?? []
         let check = status.lastCheck.map { "Last check: \(StatusView.clock.string(from: $0))" } ?? "Last check: never"
         if let problem = status.firewallProblem {
-            self.init(badge: "exclamationmark", title: "",
+            self.init(badge: "exclamationmark.triangle", tone: .problem, title: "",
                       lines: ["Firewall problem: \(problem)", status.detail, check])
         } else if status.checking {
-            self.init(badge: "arrow.triangle.2.circlepath", title: "",
+            self.init(badge: "arrow.triangle.2.circlepath", tone: .checking, title: "",
                       lines: ["Checking VPN…", status.detail, check] + warning)
         } else if status.allowed {
-            self.init(badge: "network", title: warning.isEmpty ? "" : "⚠︎",
+            self.init(badge: "network", tone: .allowed, title: warning.isEmpty ? "" : "⚠︎",
                       lines: ["Claude allowed", status.detail, check] + warning)
         } else {
-            self.init(badge: "network.slash", title: warning.isEmpty ? "" : "⚠︎",
+            self.init(badge: "network.slash", tone: .blocked, title: warning.isEmpty ? "" : "⚠︎",
                       lines: ["Claude BLOCKED", status.detail, check] + warning)
         }
     }
 
-    private init(badge: String, title: String, lines: [String]) {
+    private init(badge: String, tone: Tone, title: String, lines: [String]) {
         self.badge = badge
+        self.tone = tone
         self.title = title
         self.lines = lines
     }

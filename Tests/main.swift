@@ -123,15 +123,15 @@ check(Policy.bypassWarning(proxySettings: noProxy, relayConnections: "networkse 
 
 // MARK: tray view
 let fresh = Status(allowed: true, interface: "utun4", allowedCountries: ["LV", "DE"], timezone: "Europe/Riga", detail: "Exit country LV via utun4", checking: false, firewallProblem: nil, lastCheck: now, updatedAt: now)
-check(StatusView(fresh, now: now).badge == "network", "allowed badge")
-check(StatusView(nil, now: now).badge == "questionmark", "no status → question badge")
-check(StatusView(fresh, now: now.addingTimeInterval(StatusView.staleAfter)).badge == "questionmark", "stale status → question badge")
+check(StatusView(fresh, now: now).tone == .allowed, "allowed badge green")
+check(StatusView(nil, now: now).badge == "questionmark.circle", "no status → question badge")
+check(StatusView(fresh, now: now.addingTimeInterval(StatusView.staleAfter)).badge == "questionmark.circle", "stale status → question badge")
 var blocked = fresh; blocked.allowed = false
-check(StatusView(blocked, now: now).lines.first == "Claude BLOCKED", "blocked text")
+check(StatusView(blocked, now: now).lines.first == "Claude BLOCKED" && StatusView(blocked, now: now).tone == .blocked, "blocked text and red tone")
 var warned = fresh; warned.warning = "system proxy enabled"
 check(StatusView(warned, now: now).title == "⚠︎" && StatusView(warned, now: now).lines.last!.contains("proxy"), "bypass warning shown")
 var broken = fresh; broken.firewallProblem = "pf is disabled"
-check(StatusView(broken, now: now).badge == "exclamationmark", "firewall problem wins")
+check(StatusView(broken, now: now).badge == "exclamationmark.triangle", "firewall problem wins")
 
 // MARK: launch gate (novpn check)
 let go = LaunchReport(fresh, currentInterface: "utun4", now: now.addingTimeInterval(12))

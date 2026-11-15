@@ -1,56 +1,34 @@
 # no-vpn-no-claude
 
-Blocks every connection from a Mac to Claude and Anthropic unless the internet exit is in a country you allow. The block lives in the macOS packet filter, so it covers every app at once, including browsers, Claude Code, the desktop app and usage trackers.
-
-## How it works
-
-```mermaid
-flowchart TD
-    A[Any app connects to Anthropic] --> B{pf anchor com.apple/050.NoVpnNoClaude}
-    B -->|leaves via the verified interface| C[Allowed]
-    B -->|leaves via any other interface| D[Rejected instantly]
-    E[Root daemon, every 2 s] --> F[Route to 160.79.104.10 gives the interface]
-    F --> G{Interface, addresses or routes changed}
-    G -->|yes| H[Block, then recheck now]
-    G -->|no| I[Recheck every 2 min]
-    H --> J[Geo lookup sent through that interface]
-    I --> J
-    J -->|allowed country| K[Pass rule for that interface]
-    J -->|other country or no answer| L[Block rule only]
-    K --> B
-    L --> B
-```
-
-The pass rule names the interface where the country was checked. When the VPN drops, the route to Anthropic falls back to Wi-Fi and pf rejects the traffic before the daemon notices anything.
-
-The daemon starts at boot with everything blocked and blocks again on any network change. A VPN server switch inside the same tunnel counts as a change because the endpoint route moves. The daemon holds its own pf reference, reloads its rules if something flushes them, and exits from a hung loop so launchd restarts it blocked. The main pf ruleset and the VPN client's rules are never touched.
-
-The block table holds Anthropic's own ranges `160.79.104.0/23` and `2607:6bc0::/48`, where claude.ai, api.anthropic.com, claude.com, console and docs all live. It also holds the current addresses of the hosts listed in `Sources/Policy.swift`, refreshed every 10 minutes. TCP, QUIC and IPv6 are covered.
-
-Geo lookups go to ipinfo.io, then ifconfig.co, then api.country.is, and only the country code and time zone are read. If all three fail on the network verified less than 10 minutes ago, access stays as it was. In every other case Claude is blocked.
+A macOS guard that blocks every connection to Claude and Anthropic unless the internet exit is in a country you allow. Works for all apps at once, browsers included, and starts Claude Code with the time zone of the VPN exit.
 
 ## Install
 
-Requires macOS 13 or newer and the Xcode command line tools (`xcode-select --install`).
+macOS 13+ and Xcode command line tools (`xcode-select --install`).
 
 ```bash
 gh repo clone LuminiteTime/no-vpn-no-claude && cd no-vpn-no-claude
-sudo ./install.sh
+sudo ./install.sh                                  # asks for countries and the Claude Code hook
+sudo ./install.sh --countries LV,DE --hook         # unattended
+sudo ./uninstall.sh                                # removes everything, hook included
 ```
 
-The installer asks for the allowed countries as ISO codes and whether to add the Claude Code launch check to your shell (zsh or bash). Unattended installs pass both as flags.
+Rerun `install.sh` to update or change countries. Open a new terminal after installing the hook.
 
-```bash
-sudo ./install.sh --countries LV,DE --hook
-```
+## Menu bar
 
-Rerun it to update or change countries, the previous list is the default. `sudo ./uninstall.sh` removes everything, the shell hook included.
+| Icon | Meaning |
+|---|---|
+| green globe | Claude allowed, exit country verified |
+| red crossed globe | Claude blocked |
+| blue arrows | country check running |
+| orange triangle | firewall problem, see the log |
+| gray question mark | daemon not answering, last rules still apply |
+| `⚠︎` next to it | system proxy or iCloud Private Relay active, those bypass the guard |
 
-## Claude Code launch check
+## Claude Code
 
-With the hook installed, `claude` runs `novpn check` first and passes every argument through unchanged. The check reads the daemon verdict and the current route and sends nothing to the network.
-
-Claude Code then starts with `TZ` set to the time zone of the VPN exit, so the date in its system prompt, the per-turn timestamps and anything its tools run (`date`, git commits) match the exit IP instead of the Mac's own clock. Claude Code reads the zone only from its runtime, which follows `TZ`. The zone comes from the geo lookup when it belongs to the verified country, otherwise from the country's main zone in `/usr/share/zoneinfo/zone.tab`. If no zone is known, Claude Code does not start.
+The hook wraps `claude`. Every flag passes through, `command claude` skips the wrapper.
 
 ```
 ✓ no-vpn-no-claude Exit country LV via utun4 · TZ Europe/Riga · verified 14s ago · allowed LV, DE
@@ -58,36 +36,41 @@ Claude Code then starts with `TZ` set to the time zone of the VPN exit, so the d
   Claude Code not started, turn on the VPN (allowed LV, DE) and retry
 ```
 
-The result stays on screen for a second before Claude Code switches to its full-screen view. `command claude` skips the check.
+The check is local and sends nothing. On success Claude Code runs with `TZ` set to the exit zone, which covers its prompt date, per-turn timestamps and child processes such as `date` and git.
 
-## Menu bar
+## How it works
 
-The icon is a star with a status badge. A globe means Claude is allowed and a crossed-out globe means it is blocked. Circling arrows show a check in progress, `!` is a firewall problem and `?` means the daemon stopped answering. `⚠︎` next to the icon appears when a system proxy or iCloud Private Relay is active.
+```mermaid
+flowchart TD
+    A[Any app connects to Anthropic] --> B{pf anchor}
+    B -->|via verified interface| C[Allowed]
+    B -->|via any other interface| D[Rejected instantly]
+    E[Root daemon, every 2 s] --> G{Route, addresses or VPN endpoint changed}
+    G -->|yes| H[Block, recheck now]
+    G -->|no| I[Recheck every 2 min]
+    H --> J[Geo lookup through that interface]
+    I --> J
+    J -->|allowed country| K[Pass rule for that interface]
+    J -->|otherwise| L[Block only]
+    K --> B
+    L --> B
+```
 
-## Limits
+- The pass rule names the verified interface, so a dropped VPN is blocked by pf before the daemon reacts.
+- Blocked ranges are `160.79.104.0/23` and `2607:6bc0::/48` plus resolved Claude hosts. TCP, QUIC and IPv6 are covered.
+- Geo source is ipinfo.io, then ifconfig.co, then api.country.is. The zone must belong to the verified country per `zone.tab`.
+- Fail closed at boot, on network change and on failed lookups (a 10 minute grace applies only to the same verified network).
+- Self healing. The daemon holds its own pf reference, reloads flushed rules and restarts through launchd if its loop hangs. Other pf rules are never touched.
 
-An IP block cannot see traffic that leaves through someone else's exit. Browser VPN extensions, system proxies, Private Relay, Tor and Claude served from AWS Bedrock or Google Vertex all pass. Proxies and Private Relay are flagged with `⚠︎`. A Mac that is physically in an allowed country gets access without a VPN, since the rule checks the exit country.
+Not covered are browser VPN extensions, proxies, Tor and Claude through AWS Bedrock or Google Vertex.
 
 ## Files
 
-| Path | Contents |
+| Path | Role |
 |---|---|
-| `/Library/Application Support/NoVpnNoClaude/` | binary and shell wrapper, owned by root |
-| `/Library/LaunchDaemons/local.novpnnoclaude.daemon.plist` | daemon job with the allowed countries |
-| `/Library/LaunchAgents/local.novpnnoclaude.tray.plist` | menu bar job |
-| `/var/run/novpn-no-claude.json` | current status |
+| `/Library/Application Support/NoVpnNoClaude/` | binary and shell wrapper |
+| `/Library/LaunchDaemons/local.novpnnoclaude.daemon.plist` | daemon and allowed countries |
+| `/Library/LaunchAgents/local.novpnnoclaude.tray.plist` | menu bar |
 | `/var/log/novpn-no-claude.log` | state changes |
 
-## Development
-
-Plain Swift with no dependencies. `./build.sh` builds `build/novpn` and runs the tests.
-
-| File | Role |
-|---|---|
-| `Policy.swift` | decisions, pf rules, parsing (pure) |
-| `Status.swift` | status file, launch check, tray text |
-| `ShellHook.swift` | marked block in the shell rc file |
-| `System.swift` | pfctl, route, ifconfig, netstat, curl |
-| `Daemon.swift` | guard loop, background DNS, watchdog |
-| `Tray.swift`, `TrayIcon.swift` | menu bar item and its drawn icon |
-| `Tests/main.swift` | tests |
+Development is plain Swift without dependencies. `./build.sh` builds and runs the tests.

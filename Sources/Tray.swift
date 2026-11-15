@@ -19,10 +19,20 @@ final class Tray: NSObject {
         let view = StatusView(Status.read(), now: Date())
         guard view != shown else { return }
         shown = view
-        item.button?.image = TrayIcon.image(badge: view.badge)
+        item.button?.image = TrayIcon.image(symbol: view.badge, color: Tray.color(view.tone))
         item.button?.title = view.title
         item.button?.toolTip = view.lines.joined(separator: "\n")
         item.menu = menu(for: view)
+    }
+
+    private static func color(_ tone: StatusView.Tone) -> NSColor {
+        switch tone {
+        case .allowed: return .systemGreen
+        case .blocked: return .systemRed
+        case .checking: return .systemBlue
+        case .problem: return .systemOrange
+        case .unknown: return .systemGray
+        }
     }
 
     private func menu(for view: StatusView) -> NSMenu {
