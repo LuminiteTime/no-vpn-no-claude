@@ -13,13 +13,34 @@ let direct = NetworkSnapshot(interface: "en0", addresses: ["inet 192.168.1.101"]
 let verified = Verification(network: vpn, country: "LV", at: now.addingTimeInterval(-60))
 
 // MARK: country parsing
-check(Policy.parseCountry("LV\n") == "LV", "plain country")
-check(Policy.parseCountry("de") == "DE", "lowercase country")
-check(Policy.parseCountry(#"{"ip":"1.2.3.4","country":"LV"}"#) == "LV", "json country")
-check(Policy.parseCountry("<!DOCTYPE html><html>") == nil, "html challenge page rejected")
-check(Policy.parseCountry("") == nil, "empty rejected")
-check(Policy.parseCountry("LVA") == nil, "3 letters rejected")
-check(Policy.parseCountry("L1") == nil, "digit rejected")
+check(Policy.parseGeo("LV\n") == .country("LV"), "plain country")
+check(Policy.parseGeo("de") == .country("DE"), "lowercase country")
+check(Policy.parseGeo(#"{"ip":"1.2.3.4","country":"LV","timezone":"Europe/Riga"}"#) == .country("LV", timezone: "Europe/Riga"), "ipinfo json with timezone")
+check(Policy.parseGeo(#"{"country":"Latvia","country_iso":"LV","time_zone":"Europe/Riga"}"#) == .country("LV", timezone: "Europe/Riga"), "ifconfig.co json, country name ignored")
+check(Policy.parseGeo(#"{"ip":"1.2.3.4","country":"LV"}"#) == .country("LV"), "country.is json without timezone")
+check(Policy.parseGeo("<!DOCTYPE html><html>") == .unavailable, "html challenge page rejected")
+check(Policy.parseGeo("") == .unavailable, "empty rejected")
+check(Policy.parseGeo("LVA") == .unavailable && Policy.parseGeo("L1") == .unavailable, "bad codes rejected")
+check(Policy.parseGeo(#"{"country":"Latvia"}"#) == .unavailable, "json with only a country name rejected")
+
+// MARK: time zone of the exit country
+let zones = Policy.parseZoneTab("""
+# comment
+DE\t+5230+01322\tEurope/Berlin\tmost of Germany
+DE\t+4742+00841\tEurope/Busingen\tBusingen
+LV\t+5657+02406\tEurope/Riga
+US\t+404251-0740023\tAmerica/New_York\tEastern
+US\t+340308-1181434\tAmerica/Los_Angeles\tPacific
+""")
+check(zones["DE"] == ["Europe/Berlin", "Europe/Busingen"] && zones["LV"] == ["Europe/Riga"], "zone.tab parsed, main zone first")
+check(Policy.timezone(country: "LV", reported: "Europe/Riga", zones: zones) == "Europe/Riga", "reported zone of that country used")
+check(Policy.timezone(country: "US", reported: "America/Los_Angeles", zones: zones) == "America/Los_Angeles", "regional zone kept for multi-zone country")
+check(Policy.timezone(country: "DE", reported: nil, zones: zones) == "Europe/Berlin", "no reported zone → country's main zone")
+check(Policy.timezone(country: "LV", reported: "Europe/Moscow", zones: zones) == "Europe/Riga", "zone of another country never used")
+check(Policy.timezone(country: "LV", reported: "../../etc/passwd", zones: zones) == "Europe/Riga", "garbage zone never used")
+check(Policy.timezone(country: "BV", reported: nil, zones: zones) == nil, "country without zone → unknown")
+check(TimeZones.zone(for: "LV", reported: nil) == "Europe/Riga" && TimeZones.zone(for: "DE", reported: nil) == "Europe/Berlin", "system zone.tab readable")
+
 
 // MARK: decisions
 check(Policy.decide(geo: .country("LV"), network: vpn, lastVerified: nil, allowed: allowedSet, now: now) == .allow(interface: "utun4", country: "LV"), "LV allowed")
@@ -101,20 +122,24 @@ check(Policy.bypassWarning(proxySettings: "  ProxyAutoConfigEnable : 1", relayCo
 check(Policy.bypassWarning(proxySettings: noProxy, relayConnections: "networkse 123 u 9u IPv4 UDP 10.8.1.8:5000->17.250.84.146:443") != nil, "Private Relay connection warns")
 
 // MARK: tray view
-let fresh = Status(allowed: true, interface: "utun4", allowedCountries: ["LV", "DE"], detail: "Exit country LV via utun4", checking: false, firewallProblem: nil, lastCheck: now, updatedAt: now)
-check(StatusView(fresh, now: now).symbol == "checkmark.shield.fill", "allowed icon")
-check(StatusView(nil, now: now).symbol == "exclamationmark.triangle.fill", "no status → warning")
-check(StatusView(fresh, now: now.addingTimeInterval(StatusView.staleAfter)).title == "?", "stale status → warning")
+let fresh = Status(allowed: true, interface: "utun4", allowedCountries: ["LV", "DE"], timezone: "Europe/Riga", detail: "Exit country LV via utun4", checking: false, firewallProblem: nil, lastCheck: now, updatedAt: now)
+check(StatusView(fresh, now: now).badge == "network", "allowed badge")
+check(StatusView(nil, now: now).badge == "questionmark", "no status → question badge")
+check(StatusView(fresh, now: now.addingTimeInterval(StatusView.staleAfter)).badge == "questionmark", "stale status → question badge")
 var blocked = fresh; blocked.allowed = false
 check(StatusView(blocked, now: now).lines.first == "Claude BLOCKED", "blocked text")
 var warned = fresh; warned.warning = "system proxy enabled"
 check(StatusView(warned, now: now).title == "⚠︎" && StatusView(warned, now: now).lines.last!.contains("proxy"), "bypass warning shown")
 var broken = fresh; broken.firewallProblem = "pf is disabled"
-check(StatusView(broken, now: now).symbol == "exclamationmark.shield.fill", "firewall problem wins")
+check(StatusView(broken, now: now).badge == "exclamationmark", "firewall problem wins")
 
 // MARK: launch gate (novpn check)
 let go = LaunchReport(fresh, currentInterface: "utun4", now: now.addingTimeInterval(12))
-check(go.ok && go.summary == "Exit country LV via utun4 · verified 12s ago · allowed LV, DE", "launch: verified VPN → go with compact summary")
+check(go.ok && go.summary == "Exit country LV via utun4 · TZ Europe/Riga · verified 12s ago · allowed LV, DE", "launch: verified VPN → go with compact summary")
+check(go.timezone == "Europe/Riga", "launch: hands the exit zone to the wrapper")
+var noZone = fresh; noZone.timezone = nil
+check(!LaunchReport(noZone, currentInterface: "utun4", now: now).ok, "launch: unknown exit zone → refuse")
+check(LaunchReport(blocked, currentInterface: "en0", now: now).timezone == nil, "launch: no zone handed out when refused")
 check(!LaunchReport(nil, currentInterface: "utun4", now: now).ok, "launch: no daemon → refuse")
 check(!LaunchReport(fresh, currentInterface: "utun4", now: now.addingTimeInterval(StatusView.staleAfter)).ok, "launch: stale status → refuse")
 check(LaunchReport(blocked, currentInterface: "en0", now: now).hint!.contains("allowed LV, DE"), "launch: blocked → refuse naming allowed countries")

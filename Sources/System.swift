@@ -108,10 +108,19 @@ enum Network {
     }
 }
 
+enum TimeZones {
+    private static let byCountry = Policy.parseZoneTab(
+        (try? String(contentsOfFile: "/usr/share/zoneinfo/zone.tab", encoding: .utf8)) ?? "")
+
+    static func zone(for country: String, reported: String?) -> String? {
+        Policy.timezone(country: country, reported: reported, zones: byCountry)
+    }
+}
+
 enum Geo {
     private static let providers = [
-        "https://ipinfo.io/country",
-        "https://ifconfig.co/country-iso",
+        "https://ipinfo.io/json",
+        "https://ifconfig.co/json",
         "https://api.country.is",
     ]
 
@@ -119,7 +128,8 @@ enum Geo {
     static func country(via interface: String) -> GeoResult {
         for url in providers {
             let result = Shell.run("/usr/bin/curl", ["-4", "-sS", "--fail", "-m", "5", "--interface", interface, url])
-            if result.status == 0, let code = Policy.parseCountry(result.output) { return .country(code) }
+            let geo = result.status == 0 ? Policy.parseGeo(result.output) : .unavailable
+            if geo != .unavailable { return geo }
         }
         return .unavailable
     }

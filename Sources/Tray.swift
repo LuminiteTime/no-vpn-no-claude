@@ -19,9 +19,7 @@ final class Tray: NSObject {
         let view = StatusView(Status.read(), now: Date())
         guard view != shown else { return }
         shown = view
-        let image = NSImage(systemSymbolName: view.symbol, accessibilityDescription: view.lines.first)
-        image?.isTemplate = true
-        item.button?.image = image
+        item.button?.image = TrayIcon.image(badge: view.badge)
         item.button?.title = view.title
         item.button?.toolTip = view.lines.joined(separator: "\n")
         item.menu = menu(for: view)

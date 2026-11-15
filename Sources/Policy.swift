@@ -26,9 +26,9 @@ enum Policy {
     static func decide(geo: GeoResult, network: NetworkSnapshot, lastVerified: Verification?,
                        allowed: Set<String>, now: Date) -> Verdict {
         switch geo {
-        case .country(let code) where allowed.contains(code):
+        case .country(let code, _) where allowed.contains(code):
             return .allow(interface: network.interface, country: code)
-        case .country(let code):
+        case .country(let code, _):
             return .block(reason: "exit country is \(code)")
         case .unavailable:
             guard let verified = lastVerified, verified.isStillValid(for: network, now: now) else {
@@ -67,10 +67,36 @@ enum Policy {
 
     // MARK: - Parsing command output
 
-    /// Accepts `LV`, `lv\n` or `{"country":"LV",...}`.
-    static func parseCountry(_ body: String) -> String? {
-        let candidate = jsonCountry(body) ?? body.trimmingCharacters(in: .whitespacesAndNewlines)
-        let code = candidate.uppercased()
+    /// Geo answer → country (+ timezone when the provider reports one).
+    /// Accepts `LV\n`, ipinfo.io `{"country":"LV","timezone":...}` and ifconfig.co `{"country_iso":"LV","time_zone":...}`.
+    static func parseGeo(_ body: String) -> GeoResult {
+        guard let object = jsonObject(body) else { return countryCode(body).map { .country($0) } ?? .unavailable }
+        let country = (object["country_iso"] as? String) ?? (object["country"] as? String)
+        guard let code = country.flatMap(countryCode) else { return .unavailable }
+        return .country(code, timezone: (object["timezone"] as? String) ?? (object["time_zone"] as? String))
+    }
+
+    /// The zone to present for an exit country. The provider's zone wins only if it really belongs
+    /// to that country; otherwise the country's main zone (first in zone.tab). nil = unknown country.
+    static func timezone(country: String, reported: String?, zones: [String: [String]]) -> String? {
+        guard let candidates = zones[country] else { return nil }
+        if let reported, candidates.contains(reported) { return reported }
+        return candidates.first
+    }
+
+    /// `/usr/share/zoneinfo/zone.tab` → country code to zones, main zone first.
+    static func parseZoneTab(_ text: String) -> [String: [String]] {
+        var zones: [String: [String]] = [:]
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let columns = line.split(separator: "\t")
+            guard columns.count >= 3 else { continue }
+            zones[String(columns[0]), default: []].append(String(columns[2]))
+        }
+        return zones
+    }
+
+    private static func countryCode(_ text: String) -> String? {
+        let code = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard code.count == 2, code.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
         return code
     }
@@ -121,10 +147,9 @@ enum Policy {
         address.range(of: #"^[0-9a-fA-F:.]+(/[0-9]{1,3})?$"#, options: .regularExpression) != nil
     }
 
-    private static func jsonCountry(_ body: String) -> String? {
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object["country"] as? String
+    private static func jsonObject(_ body: String) -> [String: Any]? {
+        guard let data = body.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 }
 
@@ -135,7 +160,7 @@ struct CountryList: Equatable {
 }
 
 enum GeoResult: Equatable {
-    case country(String)
+    case country(String, timezone: String? = nil)
     case unavailable
 }
 
@@ -160,6 +185,7 @@ struct NetworkSnapshot: Equatable {
 struct Verification {
     let network: NetworkSnapshot
     let country: String
+    var timezone: String? = nil
     let at: Date
 
     func isStillValid(for current: NetworkSnapshot, now: Date) -> Bool {

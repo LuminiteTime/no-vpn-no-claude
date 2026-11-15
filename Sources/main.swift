@@ -15,6 +15,7 @@ case "check":
     let summary = report.ok ? Term.dim(report.summary) : Term.red(report.summary)
     printErr("\(mark) \(Term.bold("no-vpn-no-claude")) \(summary)")
     if let hint = report.hint { printErr("  \(Term.yellow(hint))") }
+    if let timezone = report.timezone { print(timezone) }   // stdout: the wrapper passes it to Claude Code as TZ
     exit(report.ok ? 0 : 1)
 case "status":
     print(StatusView(Status.read(), now: Date()).lines.joined(separator: "\n"))

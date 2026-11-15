@@ -66,9 +66,12 @@ final class Daemon {
         let geo = Geo.country(via: network.interface)
         let now = Date()
         guard Network.snapshot() == network else { nextGeoCheck = now; return }   // changed mid-check: redo
-        if case .country(let code) = geo {
+        if case .country(let code, let reportedZone) = geo {
             lastCheck = now
-            lastVerified = allowed.contains(code) ? Verification(network: network, country: code, at: now) : nil
+            lastVerified = allowed.contains(code)
+                ? Verification(network: network, country: code,
+                               timezone: TimeZones.zone(for: code, reported: reportedZone), at: now)
+                : nil
         }
         enforce(Policy.decide(geo: geo, network: network, lastVerified: lastVerified, allowed: Set(allowed), now: now))
         nextGeoCheck = now + (geo == .unavailable ? Policy.geoRetryInterval : Policy.geoRecheckInterval)
@@ -104,7 +107,8 @@ final class Daemon {
     }
 
     private func publish(checking: Bool = false) {
-        Status(allowed: verdict.isAllowed, interface: verdict.interface, allowedCountries: allowed, detail: Daemon.describe(verdict), checking: checking,
+        Status(allowed: verdict.isAllowed, interface: verdict.interface, allowedCountries: allowed,
+               timezone: verdict.isAllowed ? lastVerified?.timezone : nil, detail: Daemon.describe(verdict), checking: checking,
                firewallProblem: healthProblem ?? loadProblem, warning: bypassWarning,
                lastCheck: lastCheck, updatedAt: Date()).write()
     }

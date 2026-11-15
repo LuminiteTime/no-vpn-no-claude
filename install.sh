@@ -71,7 +71,9 @@ COUNTRIES="$COUNTRIES_ARG"
 while [[ -z "$COUNTRIES" ]]; do
     [[ $INTERACTIVE == yes ]] || { [[ -n "$CURRENT" ]] && COUNTRIES="$CURRENT" && break; die "no terminal, pass --countries LV,DE"; }
     echo "  Claude is allowed only when the internet exit IP is in one of these countries."
-    COUNTRIES=$(ask "ISO codes, comma separated${CURRENT:+ [$CURRENT]}:")
+    echo "  Use ISO 3166 codes, for example ${B}LV${N} Latvia, ${B}DE${N} Germany, ${B}NL${N} Netherlands,"
+    echo "  ${B}FI${N} Finland, ${B}EE${N} Estonia, ${B}PL${N} Poland, ${B}GB${N} United Kingdom, ${B}US${N} United States."
+    COUNTRIES=$(ask "Countries, comma separated${CURRENT:+ [$CURRENT]}:")
     COUNTRIES="${COUNTRIES:-$CURRENT}"
     if ! build/novpn countries "$COUNTRIES" >/dev/null 2>&1; then build/novpn countries "$COUNTRIES" || true; COUNTRIES=""; fi
 done
@@ -95,8 +97,9 @@ if [[ -z "$RC" ]]; then
     HOOK=no
 elif [[ -z "$HOOK" ]]; then
     if [[ $INTERACTIVE == yes ]]; then
-        echo "  Wraps the claude command so it starts only after the guard approves the network."
-        echo "  All claude flags keep working. The check is local and sends nothing to the network."
+        echo "  Wraps the claude command so it starts only after the guard approves the network,"
+        echo "  with the time zone of the VPN exit country. All claude flags keep working."
+        echo "  The check is local and sends nothing to the network."
         reply=$(ask "Add it to $RC_SHORT? [Y/n]")
         [[ "$reply" =~ ^[Nn] ]] && HOOK=no || HOOK=yes
     else
@@ -109,10 +112,12 @@ install -d -o root -g wheel -m 755 "$DIR"
 install -o root -g wheel -m 755 build/novpn "$BIN"
 cat > "$WRAPPER" <<EOF
 # Installed by no-vpn-no-claude. Claude Code starts only after the VPN guard approves the current network.
+# TZ is the VPN exit country's zone, so every timestamp Claude Code sends matches the exit IP.
 function claude {
-    "$BIN" check || return 1
+    local tz
+    tz=\$("$BIN" check) || return 1
     [ -t 2 ] && sleep 1   # Claude Code switches to a full-screen view at once, keep the result readable
-    command claude "\$@"
+    TZ="\$tz" command claude "\$@"
 }
 EOF
 chown root:wheel "$WRAPPER"; chmod 644 "$WRAPPER"

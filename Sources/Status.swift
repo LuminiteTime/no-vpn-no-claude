@@ -7,6 +7,7 @@ struct Status: Codable {
     var allowed: Bool
     var interface: String?
     var allowedCountries: [String]?
+    var timezone: String?
     var detail: String
     var checking: Bool
     var firewallProblem: String?
@@ -33,6 +34,8 @@ struct LaunchReport: Equatable {
     let ok: Bool
     let summary: String
     let hint: String?
+    /// Exit country's zone, handed to Claude Code as TZ.
+    var timezone: String? = nil
 
     init(_ status: Status?, currentInterface: String?, now: Date) {
         guard let status, now.timeIntervalSince(status.updatedAt) < StatusView.staleAfter else {
@@ -46,12 +49,15 @@ struct LaunchReport: Equatable {
             self.init(fail: status.detail, hint: "turn on the VPN (allowed \(allowed)) and retry")
         } else if status.interface == nil || status.allowedCountries == nil {
             self.init(fail: "guard daemon is outdated", hint: "reinstall with sudo ./install.sh")
+        } else if status.timezone == nil {
+            self.init(fail: "no time zone known for this exit country", hint: "check /var/log/novpn-no-claude.log")
         } else if currentInterface != status.interface {
             self.init(fail: "network changed, Claude now routes via \(currentInterface ?? "nothing")",
                       hint: "retry in a few seconds")
         } else {
             let age = status.lastCheck.map { " · verified \(LaunchReport.ago(now.timeIntervalSince($0)))" } ?? ""
-            self.init(ok: true, summary: "\(status.detail)\(age) · allowed \(allowed)", hint: nil)
+            self.init(ok: true, summary: "\(status.detail) · TZ \(status.timezone!)\(age) · allowed \(allowed)", hint: nil)
+            self.timezone = status.timezone
         }
     }
 
@@ -71,39 +77,39 @@ struct LaunchReport: Equatable {
     }
 }
 
-/// What the tray shows. AppKit-free so it is testable.
+/// What the tray shows. AppKit-free so it is testable. `badge` is the SF Symbol drawn on the star.
 struct StatusView: Equatable {
     static let staleAfter: TimeInterval = 15
 
-    let symbol: String
+    let badge: String
     let title: String
     let lines: [String]
 
     init(_ status: Status?, now: Date) {
         guard let status, now.timeIntervalSince(status.updatedAt) < StatusView.staleAfter else {
-            self.init(symbol: "exclamationmark.triangle.fill", title: "?",
+            self.init(badge: "questionmark", title: "",
                       lines: ["Guard daemon not responding", "Last firewall state still applies"])
             return
         }
         let warning = status.warning.map { ["⚠︎ \($0)"] } ?? []
         let check = status.lastCheck.map { "Last check: \(StatusView.clock.string(from: $0))" } ?? "Last check: never"
         if let problem = status.firewallProblem {
-            self.init(symbol: "exclamationmark.shield.fill", title: "!",
+            self.init(badge: "exclamationmark", title: "",
                       lines: ["Firewall problem: \(problem)", status.detail, check])
         } else if status.checking {
-            self.init(symbol: "arrow.triangle.2.circlepath", title: "",
+            self.init(badge: "arrow.triangle.2.circlepath", title: "",
                       lines: ["Checking VPN…", status.detail, check] + warning)
         } else if status.allowed {
-            self.init(symbol: "checkmark.shield.fill", title: warning.isEmpty ? "" : "⚠︎",
+            self.init(badge: "network", title: warning.isEmpty ? "" : "⚠︎",
                       lines: ["Claude allowed", status.detail, check] + warning)
         } else {
-            self.init(symbol: "xmark.shield.fill", title: warning.isEmpty ? "" : "⚠︎",
+            self.init(badge: "network.slash", title: warning.isEmpty ? "" : "⚠︎",
                       lines: ["Claude BLOCKED", status.detail, check] + warning)
         }
     }
 
-    private init(symbol: String, title: String, lines: [String]) {
-        self.symbol = symbol
+    private init(badge: String, title: String, lines: [String]) {
+        self.badge = badge
         self.title = title
         self.lines = lines
     }

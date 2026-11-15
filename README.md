@@ -27,7 +27,7 @@ The daemon starts at boot with everything blocked and blocks again on any networ
 
 The block table holds Anthropic's own ranges `160.79.104.0/23` and `2607:6bc0::/48`, where claude.ai, api.anthropic.com, claude.com, console and docs all live. It also holds the current addresses of the hosts listed in `Sources/Policy.swift`, refreshed every 10 minutes. TCP, QUIC and IPv6 are covered.
 
-Geo lookups go to ipinfo.io, then ifconfig.co, then api.country.is, and only the country code is read. If all three fail on the network verified less than 10 minutes ago, access stays as it was. In every other case Claude is blocked.
+Geo lookups go to ipinfo.io, then ifconfig.co, then api.country.is, and only the country code and time zone are read. If all three fail on the network verified less than 10 minutes ago, access stays as it was. In every other case Claude is blocked.
 
 ## Install
 
@@ -50,8 +50,10 @@ Rerun it to update or change countries, the previous list is the default. `sudo 
 
 With the hook installed, `claude` runs `novpn check` first and passes every argument through unchanged. The check reads the daemon verdict and the current route and sends nothing to the network.
 
+Claude Code then starts with `TZ` set to the time zone of the VPN exit, so the date in its system prompt, the per-turn timestamps and anything its tools run (`date`, git commits) match the exit IP instead of the Mac's own clock. Claude Code reads the zone only from its runtime, which follows `TZ`. The zone comes from the geo lookup when it belongs to the verified country, otherwise from the country's main zone in `/usr/share/zoneinfo/zone.tab`. If no zone is known, Claude Code does not start.
+
 ```
-✓ no-vpn-no-claude Exit country LV via utun4 · verified 14s ago · allowed LV, DE
+✓ no-vpn-no-claude Exit country LV via utun4 · TZ Europe/Riga · verified 14s ago · allowed LV, DE
 ✗ no-vpn-no-claude Blocked: exit country is RU
   Claude Code not started, turn on the VPN (allowed LV, DE) and retry
 ```
@@ -60,7 +62,7 @@ The result stays on screen for a second before Claude Code switches to its full-
 
 ## Menu bar
 
-A shield with a check means Claude is allowed and a crossed shield means it is blocked. Circling arrows show a check in progress. `!` is a firewall problem and `?` means the daemon stopped answering. `⚠︎` appears when a system proxy or iCloud Private Relay is active.
+The icon is a star with a status badge. A globe means Claude is allowed and a crossed-out globe means it is blocked. Circling arrows show a check in progress, `!` is a firewall problem and `?` means the daemon stopped answering. `⚠︎` next to the icon appears when a system proxy or iCloud Private Relay is active.
 
 ## Limits
 
@@ -87,5 +89,5 @@ Plain Swift with no dependencies. `./build.sh` builds `build/novpn` and runs the
 | `ShellHook.swift` | marked block in the shell rc file |
 | `System.swift` | pfctl, route, ifconfig, netstat, curl |
 | `Daemon.swift` | guard loop, background DNS, watchdog |
-| `Tray.swift` | menu bar icon |
+| `Tray.swift`, `TrayIcon.swift` | menu bar item and its drawn icon |
 | `Tests/main.swift` | tests |
