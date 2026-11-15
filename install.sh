@@ -98,7 +98,7 @@ if [[ -z "$RC" ]]; then
 elif [[ -z "$HOOK" ]]; then
     if [[ $INTERACTIVE == yes ]]; then
         echo "  Wraps the claude command so it starts only after the guard approves the network,"
-        echo "  with the time zone of the VPN exit country and without telemetry. All claude flags keep working."
+        echo "  with the time zone of the VPN exit country. All claude flags keep working."
         echo "  The check is local and sends nothing to the network."
         reply=$(ask "Add it to $RC_SHORT? [Y/n]")
         [[ "$reply" =~ ^[Nn] ]] && HOOK=no || HOOK=yes
@@ -113,12 +113,11 @@ install -o root -g wheel -m 755 build/novpn "$BIN"
 cat > "$WRAPPER" <<EOF
 # Installed by no-vpn-no-claude. Claude Code starts only after the VPN guard approves the current network.
 # TZ is the VPN exit country's zone, so every timestamp Claude Code sends matches the exit IP.
-# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC turns off telemetry, error reports, feature flags and the updater.
 function claude {
     local tz
     tz=\$("$BIN" check) || return 1
     [ -t 2 ] && sleep 1   # Claude Code switches to a full-screen view at once, keep the result readable
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 TZ="\$tz" command claude "\$@"
+    TZ="\$tz" command claude "\$@"
 }
 EOF
 chown root:wheel "$WRAPPER"; chmod 644 "$WRAPPER"
