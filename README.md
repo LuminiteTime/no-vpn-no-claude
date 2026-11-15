@@ -57,7 +57,7 @@ flowchart TD
 ```
 
 - The pass rule names the verified interface, so a dropped VPN is blocked by pf before the daemon reacts.
-- Blocked ranges are `160.79.104.0/23` and `2607:6bc0::/48` plus resolved Claude hosts. TCP, QUIC and IPv6 are covered.
+- Blocked ranges are `160.79.104.0/21` and `2607:6bc0::/32` plus resolved Claude hosts. TCP, QUIC and IPv6 are covered.
 - Geo source is ipinfo.io, then ifconfig.co, then api.country.is. The zone must belong to the verified country per `zone.tab`.
 - Fail closed at boot, on network change and on failed lookups (a 10 minute grace applies only to the same verified network).
 - Self healing. The daemon holds its own pf reference, reloads flushed rules and restarts through launchd if its loop hangs. Other pf rules are never touched.

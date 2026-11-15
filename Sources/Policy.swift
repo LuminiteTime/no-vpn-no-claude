@@ -3,7 +3,8 @@ import Foundation
 /// Pure decision logic: no I/O, fully unit-tested.
 enum Policy {
     /// Anthropic's own address space (claude.ai, api.anthropic.com, claude.com, ... all live here).
-    static let anthropicNetworks = ["160.79.104.0/23", "2607:6bc0::/48"]
+    /// Anthropic, PBC allocations per ARIN whois.
+    static let anthropicNetworks = ["160.79.104.0/21", "2607:6bc0::/32"]
 
     /// Resolved periodically and added to the block table, in case anything moves outside the ranges above.
     /// ponytail: status.claude.com skipped — it sits on shared Atlassian/CloudFront IPs, blocking it hits other sites.

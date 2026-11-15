@@ -61,12 +61,12 @@ check(Policy.mustRevoke(allowed, current: reconnectedVpn, lastVerified: verified
 check(!Policy.mustRevoke(.block(reason: "x"), current: direct, lastVerified: verified), "block stays block")
 
 // MARK: pf rules
-let addresses = ["160.79.104.0/23", "2607:6bc0::/48"]
+let addresses = ["160.79.104.0/21", "2607:6bc0::/32"]
 let allowRules = Policy.pfRules(for: allowed, addresses: addresses)
 let blockRules = Policy.pfRules(for: .block(reason: "x"), addresses: addresses)
 let passLine = "pass out quick on utun4 to <claude>"
 let blockLine = "block return out quick to <claude>"
-check(allowRules.contains("table <claude> const { 160.79.104.0/23, 2607:6bc0::/48 }"), "table lists addresses")
+check(allowRules.contains("table <claude> const { 160.79.104.0/21, 2607:6bc0::/32 }"), "table lists addresses")
 check(allowRules.range(of: passLine)!.lowerBound < allowRules.range(of: blockLine)!.lowerBound, "allow: pass on interface precedes block")
 check(blockRules.contains(blockLine) && !blockRules.contains("pass"), "block: no pass rule")
 let injected = Policy.pfRules(for: .allow(interface: "en0 to any\npass out all", country: "LV"), addresses: addresses)
