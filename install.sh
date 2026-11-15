@@ -111,6 +111,7 @@ cat > "$WRAPPER" <<EOF
 # Installed by no-vpn-no-claude. Claude Code starts only after the VPN guard approves the current network.
 function claude {
     "$BIN" check || return 1
+    [ -t 2 ] && sleep 1   # Claude Code switches to a full-screen view at once, keep the result readable
     command claude "\$@"
 }
 EOF

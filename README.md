@@ -56,7 +56,7 @@ With the hook installed, `claude` runs `novpn check` first and passes every argu
   Claude Code not started, turn on the VPN (allowed LV, DE) and retry
 ```
 
-`command claude` skips the check.
+The result stays on screen for a second before Claude Code switches to its full-screen view. `command claude` skips the check.
 
 ## Menu bar
 
