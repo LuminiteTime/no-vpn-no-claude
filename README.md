@@ -36,7 +36,7 @@ The hook wraps `claude`. Every flag passes through, `command claude` skips the w
   Claude Code not started, turn on the VPN (allowed LV, DE) and retry
 ```
 
-The check is local and sends nothing. On success Claude Code runs with `TZ` set to the exit zone, which covers its prompt date, per-turn timestamps and child processes such as `date` and git.
+The check is local and sends nothing. On success Claude Code runs with `TZ` set to the exit zone, which covers its prompt date, per-turn timestamps and child processes such as `date` and git. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` turns off telemetry, error reports, feature flags and auto updates. Cloud sessions, plugin downloads and file uploads stop working with it, run `command claude` when you need them.
 
 ## How it works
 
