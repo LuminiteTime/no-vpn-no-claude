@@ -26,6 +26,14 @@ warn() { echo "  ${Y}!${N} $*"; }
 die()  { echo "  ${R}✗ $*${N}" >&2; exit 1; }
 ask()  { local reply; read -r -p "  $1 " reply </dev/tty; echo "$reply"; }
 
+# bootout returns before the old job is gone; bootstrapping too early fails with "5: Input/output error".
+restart_job() {  # domain label plist
+    launchctl bootout "$1/$2" 2>/dev/null || true
+    for _ in $(seq 1 20); do launchctl print "$1/$2" >/dev/null 2>&1 || break; sleep 0.5; done
+    for _ in 1 2 3 4; do launchctl bootstrap "$1" "$3" 2>/dev/null && return 0; sleep 1; done
+    launchctl bootstrap "$1" "$3"
+}
+
 COUNTRIES_ARG="" HOOK_ARG=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -137,21 +145,11 @@ chown root:wheel "$DAEMON_PLIST" "$TRAY_PLIST"; chmod 644 "$DAEMON_PLIST" "$TRAY
 plutil -lint -s "$DAEMON_PLIST" "$TRAY_PLIST" || die "generated plist is invalid"
 ok "launchd jobs written"
 
-if [[ $HOOK == yes ]]; then
-    sudo -u "$SUDO_USER" "$BIN" hook add "$RC" || die "could not update $RC"
-    ok "launch check added to $RC_SHORT, open a new terminal to use it"
-elif [[ -n "$RC" ]]; then
-    sudo -u "$SUDO_USER" "$BIN" hook remove "$RC" 2>/dev/null || true
-    ok "launch check skipped"
-fi
-
 step "Starting"
 USER_ID=$(id -u "$SUDO_USER")
-launchctl bootout system/$DAEMON 2>/dev/null || true
-launchctl bootstrap system "$DAEMON_PLIST"
+restart_job system $DAEMON "$DAEMON_PLIST" || die "launchd refused the daemon, see the error above"
 ok "daemon running (starts at boot)"
-launchctl bootout gui/$USER_ID/$TRAY 2>/dev/null || true
-if launchctl bootstrap gui/$USER_ID "$TRAY_PLIST" 2>/dev/null; then ok "tray running (starts at login)"
+if restart_job gui/$USER_ID $TRAY "$TRAY_PLIST" 2>/dev/null; then ok "tray running (starts at login)"
 else warn "no GUI session for $SUDO_USER now, tray starts at next login"; fi
 
 for _ in $(seq 1 30); do
@@ -160,6 +158,15 @@ for _ in $(seq 1 30); do
 done
 COLOR_ENV=CLICOLOR_FORCE=0; [[ -n "$G" ]] && COLOR_ENV=CLICOLOR_FORCE=1
 sudo -u "$SUDO_USER" env "$COLOR_ENV" "$BIN" check 2>&1 | sed 's/^/  /' || true
+
+# Hook goes in last, so a failed install never leaves claude refusing to start against a missing daemon.
+if [[ $HOOK == yes ]]; then
+    sudo -u "$SUDO_USER" "$BIN" hook add "$RC" || die "could not update $RC"
+    ok "launch check added to $RC_SHORT, open a new terminal to use it"
+elif [[ -n "$RC" ]]; then
+    sudo -u "$SUDO_USER" "$BIN" hook remove "$RC" 2>/dev/null || true
+    ok "launch check not installed"
+fi
 
 step "Leak probe"
 CLAUDE_IF=$(route -n get 160.79.104.10 2>/dev/null | awk '/interface:/{print $2}' || true)
